@@ -56,6 +56,7 @@ int processorState = 0;           // 0 ideal 1 is used
 float SUMWTA = 0;
 float SUMWATING = 0;
 float *WATArray;
+int slice=0;
 ////////////////////////////////FILES PRINT////////////////
 
 void Finish()
@@ -394,6 +395,7 @@ void SortAccordingRT(LinkedList *list)
         current1 = current1->next; // Move to next node
     }
 }
+
 /////////////////////////////////////////////////////////
 void printList(LinkedList *list)
 {
@@ -417,7 +419,7 @@ struct statisticsP *result; // I will need
 ////ALGO FUNCTION
 void ALGO(LinkedList *list)
 {
-    // printf("hello\n");
+    /printf("hello clk %d\n", getClk());
     if (list->head != NULL)
     {
         if (RunningProcess == NULL && list->head != NULL)
@@ -444,7 +446,7 @@ void ALGO(LinkedList *list)
             {
                 RunningProcess->data->remainingTime--;
                 ((struct Time *)shr)->remmining = RunningProcess->data->remainingTime;
-            //    printf("process with time = %d at clk =%d remining =%d\n", RunningProcess->data->running_time, getClk(), RunningProcess->data->remainingTime);
+                //printf("process with time = %d at clk =%d remining =%d\n", RunningProcess->data->running_time, getClk(), RunningProcess->data->remainingTime);
                 if (RunningProcess->data->remainingTime == 0)
                 { // terminated
                     Finish();
@@ -471,6 +473,43 @@ void ALGO(LinkedList *list)
                 }
             }
         }
+    }
+}
+void RRSwitch(LinkedList *Ready)
+{
+    if (Ready->head != NULL)
+    {
+        if (RunningProcess != NULL)
+        {
+            if (RunningProcess->data->remainingTime - 1 == 0)
+            {
+                //printf("remove%d\n", getClk());
+                RunningProcess->data->remainingTime--;
+                RunningProcess->data->state = 2; // TERMINATE
+                Finish();                        // finish
+                processorState = 0;              // ideal
+                RunningProcess = NULL;
+                RemH(Ready); // REMOVE IT
+            }
+            else if (((RunningProcess->data->running_time) - (RunningProcess->data->remainingTime - 1)) % slice == 0)
+            {
+                RunningProcess->data->remainingTime--;
+                RunningProcess->data->state = 1; // stop
+                Stop();
+               // printf("switch %d\n", getClk());
+
+                AddT(Ready, (Ready->head->data)); // return to add it in the tail of list
+                RemH(Ready);                      // remove it from head
+                processorState = 0;
+                RunningProcess = NULL;
+                //            printList(&Ready);
+            }
+        }
+        ALGO(Ready);
+    }
+    else
+    {
+        processorState = 0; // Idle
     }
 }
 /////////////////////SIGNAL FUNCTIONS
@@ -503,7 +542,7 @@ int main(int argc, char *argv[])
     int msg_id = atoi(argv[1]);    // ID OF MESSAGE QUEUE
     int shm_id = atoi(argv[2]);    // ID OF Shared memory
     int algorithm = atoi(argv[3]); // 1 RR 2 SRTN 3 HPF //Mohammed use this
-    int slice = atoi(argv[4]);
+     slice = atoi(argv[4]);
     int number_of_system_process = atoi(argv[5]); // all system processes
     char process_run_time[10];                    // to send it to each process
     char share_id[10];                            // to send it to each process
@@ -529,11 +568,16 @@ int main(int argc, char *argv[])
 
                 sprintf(process_run_time, "%d", process[num].running_time);
                 busytime += process[num].running_time;
-                if (process[num].arrive_time > getClk())//if process send process 
+                if (process[num].arrive_time > getClk()) // if process send process
                 {
-                 //   printf("wait process which time is %d come at %d must be at %d\n",process[num].running_time,getClk(),process[num].arrive_time);;
-                    ALGO(&Ready);//continue but dosent but the newest one
-                    sleep(1);
+                //    printf("wait process which time is %d come at %d must be at %d\n", process[num].running_time, getClk(), process[num].arrive_time);
+                    ;
+                    if (algorithm == 1)
+                        RRSwitch(&Ready);
+                    else
+                        ALGO(&Ready); // continue but dosent but the newest one
+                    while (process[num].arrive_time > getClk())
+                        ; // wait
                 }
                // printf("clockrecieve: %d\n", getClk());
 
@@ -568,8 +612,8 @@ int main(int argc, char *argv[])
                         break;
                     case 2:
                         AddSorted(&Ready, &process[num]);
-              //          printList(&Ready);
-                   //     printf("clockbefore %d prev %d\n", getClk(), prev);
+                        //          printList(&Ready);
+                        //     printf("clockbefore %d prev %d\n", getClk(), prev);
 
                         num++;
                         break;
@@ -599,37 +643,7 @@ int main(int argc, char *argv[])
             switch (algorithm)
             {
             case 1: // Round Robin
-                if (Ready.head != NULL)
-                {
-                    if (RunningProcess != NULL)
-                    {
-                        if (RunningProcess->data->remainingTime - 1 == 0)
-                        {
-                            RunningProcess->data->remainingTime--;
-                            RunningProcess->data->state = 2; // TERMINATE
-                            Finish();                        // finish
-                            processorState = 0;              // ideal
-                            RunningProcess = NULL;
-                            RemH(&Ready); // REMOVE IT
-                        }
-                        else if (((RunningProcess->data->running_time) - (RunningProcess->data->remainingTime - 1)) % slice == 0)
-                        {
-                            RunningProcess->data->remainingTime--;
-                            RunningProcess->data->state = 1; // stop
-                            Stop();
-                            AddT(&Ready, (Ready.head->data)); // return to add it in the tail of list
-                            RemH(&Ready);                     // remove it from head
-                            processorState = 0;
-                            RunningProcess = NULL;
-                //            printList(&Ready);
-                        }
-                    }
-                    ALGO(&Ready);
-                }
-                else
-                {
-                    processorState = 0; // Idle
-                }
+                RRSwitch(&Ready);
                 break;
 
             case 2:
